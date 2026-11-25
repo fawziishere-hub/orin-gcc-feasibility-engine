@@ -75,8 +75,14 @@ if DATABASE_URL:
     # Merge into OPTIONS rather than replacing it — dj-database-url puts query
     # params such as ?sslmode=require there, and Neon requires TLS.
     parsed_db = dj_database_url.parse(DATABASE_URL, conn_max_age=0)
+    # Top-level Django setting, NOT an OPTIONS key: inside OPTIONS it is passed
+    # through to libpq, which rejects it as "invalid connection option".
+    parsed_db["DISABLE_SERVER_SIDE_CURSORS"] = True
     parsed_db.setdefault("OPTIONS", {})
-    parsed_db["OPTIONS"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    # psycopg3 prepares a statement after 5 executions. Those are session-scoped,
+    # and a transaction pooler (Neon's -pooler host) multiplexes requests across
+    # backends, causing "prepared statement ... already exists" under load.
+    parsed_db["OPTIONS"]["prepare_threshold"] = None
     DATABASES = {"default": parsed_db}
 elif os.getenv("VERCEL"):
     raise ImproperlyConfigured(
