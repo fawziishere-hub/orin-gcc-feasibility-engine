@@ -1,0 +1,9 @@
+# Never upload the real secrets — Vercel env vars are the source of truth.
+.env
+.venv/
+db.sqlite3
+staticfiles/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+requirements-dev.txt
