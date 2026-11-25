@@ -118,11 +118,13 @@ class Query:
 class Mutation:
     @strawberry.mutation(name="simulateCandidateCompliance")
     def simulate_candidate_compliance(
-        self, raw_profile: str, target_entity: str
+        self, raw_profile: str, target_entity: str, refresh: bool = False
     ) -> Simulation:
         if target_entity not in Entity.values:
             raise ValueError(f"Unknown target_entity. Expected one of {Entity.values}.")
-        simulation = run_candidate(raw_profile, target_entity)
+        if not raw_profile or not raw_profile.strip():
+            raise ValueError("Profile text is empty — paste a candidate profile first.")
+        simulation = run_candidate(raw_profile, target_entity, refresh=refresh)
         return Simulation.from_model(simulation)
 
 

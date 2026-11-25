@@ -6,6 +6,8 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+from .db import build_database_config
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
@@ -71,19 +73,7 @@ TEMPLATES = [
 # Postgres in production via DATABASE_URL; SQLite for a zero-config local demo.
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL:
-    # conn_max_age=0: serverless runtimes must not hold connections between requests.
-    # Merge into OPTIONS rather than replacing it — dj-database-url puts query
-    # params such as ?sslmode=require there, and Neon requires TLS.
-    parsed_db = dj_database_url.parse(DATABASE_URL, conn_max_age=0)
-    # Top-level Django setting, NOT an OPTIONS key: inside OPTIONS it is passed
-    # through to libpq, which rejects it as "invalid connection option".
-    parsed_db["DISABLE_SERVER_SIDE_CURSORS"] = True
-    parsed_db.setdefault("OPTIONS", {})
-    # psycopg3 prepares a statement after 5 executions. Those are session-scoped,
-    # and a transaction pooler (Neon's -pooler host) multiplexes requests across
-    # backends, causing "prepared statement ... already exists" under load.
-    parsed_db["OPTIONS"]["prepare_threshold"] = None
-    DATABASES = {"default": parsed_db}
+    DATABASES = {"default": build_database_config(DATABASE_URL)}
 elif os.getenv("VERCEL"):
     raise ImproperlyConfigured(
         "DATABASE_URL is required on Vercel: the filesystem is read-only and per-invocation, "

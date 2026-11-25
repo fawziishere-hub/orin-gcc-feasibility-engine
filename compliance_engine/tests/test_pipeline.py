@@ -6,7 +6,9 @@ from django.core.management import call_command
 from django.test import Client
 
 from compliance_engine.models import CandidateSimulation, Route
-from compliance_engine.services.pipeline import enrich_and_calculate
+from compliance_engine.services import pipeline
+from compliance_engine.services.llm_parser import clean_name, heuristic_parse
+from compliance_engine.services.pipeline import enrich_and_calculate, run_candidate
 from compliance_engine.tasks import process_orin_shortlist_batch
 
 pytestmark = pytest.mark.django_db
@@ -96,6 +98,45 @@ def test_model_outreach_gets_calculated_footer(seeded, monkeypatch):
     assert f"~${float(cost['monthly']['total_usd']):,.0f}/month" in result["outreach_en"]
     assert result["outreach_ar"].startswith("مرحباً عمر")
     assert "المسار: نقل الكفالة داخل الدولة" in result["outreach_ar"]
+
+
+def test_blank_profile_is_rejected(seeded):
+    response = Client().post(
+        "/graphql",
+        data=json.dumps({"query": MUTATION, "variables": {"raw": "   ", "entity": "UAE_DIFC"}}),
+        content_type="application/json",
+    )
+    body = response.json()
+    assert "errors" in body
+    assert "empty" in body["errors"][0]["message"].lower()
+    assert CandidateSimulation.objects.count() == 0
+
+
+def test_repeat_runs_are_served_from_cache(seeded, monkeypatch):
+    calls = []
+    original = pipeline.parse_candidate
+
+    def counting_parser(raw, entity):
+        calls.append(1)
+        return original(raw, entity)
+
+    monkeypatch.setattr("compliance_engine.services.pipeline.parse_candidate", counting_parser)
+
+    first = run_candidate(DUBAI_PROFILE, "UAE_DIFC", batch_id="demo")
+    again = run_candidate(DUBAI_PROFILE, "UAE_DIFC", batch_id="demo")
+    assert first.pk == again.pk
+    assert len(calls) == 1  # cached — no second parse, no second LLM charge
+
+    refreshed = run_candidate(DUBAI_PROFILE, "UAE_DIFC", batch_id="demo", refresh=True)
+    assert len(calls) == 2
+    assert refreshed.pk == first.pk  # upsert, not duplicate
+
+
+def test_placeholder_names_are_replaced():
+    assert clean_name("Name:") is None
+    assert clean_name("unknown") is None
+    assert clean_name("Omar Haddad") == "Omar Haddad"
+    assert heuristic_parse("Name:", "UAE_DIFC")["full_name"] == "Candidate"
 
 
 def test_batch_task_is_idempotent(seeded):

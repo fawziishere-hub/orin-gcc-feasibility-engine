@@ -154,6 +154,21 @@ def persist(
     return simulation
 
 
-def run_candidate(raw_profile: str, target_entity: str, batch_id: str = "adhoc"):
+def run_candidate(
+    raw_profile: str,
+    target_entity: str,
+    batch_id: str = "adhoc",
+    refresh: bool = False,
+) -> CandidateSimulation:
+    """Cached by (profile, entity) so demo re-runs cost nothing.
+
+    `refresh=True` forces a fresh LLM call (and a real charge).
+    """
+    if not refresh:
+        cached = CandidateSimulation.objects.filter(
+            batch_key=batch_key(batch_id, raw_profile, target_entity)
+        ).first()
+        if cached is not None:
+            return cached
     result = enrich_and_calculate(raw_profile, target_entity)
     return persist(result, raw_profile, batch_id=batch_id)

@@ -143,12 +143,25 @@ def _seniority(text: str) -> str:
     return "mid"
 
 
+JUNK_NAMES = {"", "name", "candidate", "unknown", "n/a", "na", "none", "null", "-"}
+
+
+def clean_name(value: str | None) -> str | None:
+    """Reject placeholder labels the model may echo back ("Name:", "unknown")."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().strip(":").strip()
+    if len(cleaned) < 2 or cleaned.lower() in JUNK_NAMES:
+        return None
+    return cleaned[:60]
+
+
 def _name(raw: str) -> str:
     match = re.search(r"(?im)^\s*name\s*[:\-]\s*(\S[^\n]{0,59})$", raw)
-    if match:
-        return match.group(1).strip()
+    if match and clean_name(match.group(1)):
+        return clean_name(match.group(1))
     first_line = raw.strip().splitlines()[0] if raw.strip() else ""
-    return (first_line[:60] or "Candidate").strip()
+    return clean_name(first_line) or "Candidate"
 
 
 def _salary(text: str) -> tuple[float, str]:
@@ -219,9 +232,15 @@ def heuristic_parse(raw_profile: str, target_entity: str) -> dict[str, Any]:
 def _coerce(payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     """Merge LLM output over the heuristic baseline, rejecting implausible values."""
     out = dict(fallback)
-    for key in ("full_name", "current_city", "current_country", "seniority"):
+    for key in ("current_city", "current_country", "seniority"):
         if isinstance(payload.get(key), str) and payload[key].strip():
-            out[key] = payload[key].strip()
+            value = payload[key].strip()
+            if value.lower() not in {"unknown", "n/a", "none"}:
+                out[key] = value
+
+    name = clean_name(payload.get("full_name"))
+    if name:
+        out["full_name"] = name
 
     for key in ("in_target_country", "transferable_visa", "needs_relocation"):
         if isinstance(payload.get(key), bool):
